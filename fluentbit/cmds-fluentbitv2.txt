@@ -1,0 +1,174 @@
+Access token dynatrace
+curl -X POST "https://iwb73820.live.dynatrace.com/api/v2/apiTokens" -H "accept: application/json; charset=utf-8" -H "Content-Type: application/json; charset=utf-8" -d "{\"name\":\"ingest token\",\"scopes\":[\"events.ingest\",\"logs.ingest\",\"metrics.ingest\",\"openTelemetryTrace.ingest\"]}" -H "Authorization: Api-Token XXXXXXXX"
+
+token
+dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+tennat
+https://iwb73820.live.dynatrace.com/
+
+
+- FluentBit para coletar os logs
+- Prometheus para coletar metricas
+- FluentBit terá todos os ratreamentos de metricas produzidos da demo app 
+- FluentBit pipeline enviar metricas, logs, traces p/ dynatrace
+
+	- K8s
+	- Nginx ingress p expor demo app
+	- Prometheus Operator
+	- OpenTelemetric Operator
+
+az aks get-credentials --resource-group Observable --name observable
+
+### Install nginx ####
+helm upgrade --install ingress-nginx ingress-nginx  --repo https://kubernetes.github.io/ingress-nginx  --namespace ingress-nginx --create-namespace
+
+### get the ip adress of ingress ####
+$IP=kubectl get svc ingress-nginx-controller -n ingress-nginx -ojson | jq -j '.status.loadBalancer.ingress[].ip'
+$IP
+
+### Update the ip of the ip adress for the ingres
+#TODO to update this part to use the dns entry /ELB/ALB
+(Get-Content otel-demo/K8sdemo.yaml).replace("IP_TO_REPLACE", $IP) | Set-Content otel-demo/K8sdemo.yaml
+cat otel-demo/K8sdemo.yaml
+
+#### Deploying Cert Manager ( for OpenTelemetry Operator)"
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
+# Wait for pod webhook started
+kubectl wait pod -l app.kubernetes.io/component=webhook -n cert-manager --for=condition=Ready --timeout=2m
+
+# Deploy the opentelemetry operator
+kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+
+### Update files params
+$CLUSTERID=(kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')
+$CLUSTERNAME=(kubectl config view --minify -o jsonpath='{.clusters[].name}')
+$CLUSTERID
+$CLUSTERNAME
+
+cat fluentbit/fluent-bit_cml.yaml
+(Get-Content fluentbit/fluent-bit_cml.yaml).replace("CLUSTER_ID_TOREPLACE", $CLUSTERID) | Set-Content fluentbit/fluent-bit_cml.yaml
+(Get-Content fluentbit/fluent-bit_cml.yaml).replace("CLUSTER_NAME_TO_REPLACE", $CLUSTERNAME) | Set-Content fluentbit/fluent-bit_cml.yaml
+cat fluentbit/fluent-bit_cml.yaml
+
+cat fluentbit/fluent-bit-metrics.yaml
+(Get-Content fluentbit/fluent-bit-metrics.yaml).replace("CLUSTER_ID_TOREPLACE", $CLUSTERID) | Set-Content fluentbit/fluent-bit-metrics.yaml
+(Get-Content fluentbit/fluent-bit-metrics.yaml).replace("CLUSTER_NAME_TO_REPLACE", $CLUSTERNAME) | Set-Content fluentbit/fluent-bit-metrics.yaml
+cat fluentbit/fluent-bit-metrics.yaml
+
+#Deploy the OpenTelemetry Collector
+##update the collector pipeline
+$DTURL="iwb73820.live.dynatrace.com"
+$DTTOKEN="dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS"
+$DTURL
+$DTTOKEN
+
+(Get-Content fluentbit/fluent-bit_initial.yaml).replace("DT_URL_TO_REPLACE", $DTURL) | Set-Content fluentbit/fluent-bit_initial.yaml
+(Get-Content fluentbit/fluent-bit_initial.yaml).replace("DT_TOKEN_TO_REPLACE", $DTTOKEN) | Set-Content fluentbit/fluent-bit_initial.yaml
+
+(Get-Content fluentbit/fluent-bit_cml_expect.yaml).replace("DT_URL_TO_REPLACE", $DTURL) | Set-Content fluentbit/fluent-bit_cml_expect.yaml
+(Get-Content fluentbit/fluent-bit_cml_expect.yaml).replace("DT_TOKEN_TO_REPLACE", $DTTOKEN) | Set-Content fluentbit/fluent-bit_cml_expect.yaml
+
+(Get-Content fluentbit/fluent-bit_cml.yaml).replace("DT_URL_TO_REPLACE", $DTURL) | Set-Content fluentbit/fluent-bit_cml.yaml
+(Get-Content fluentbit/fluent-bit_cml.yaml).replace("DT_TOKEN_TO_REPLACE", $DTTOKEN) | Set-Content fluentbit/fluent-bit_cml.yaml
+
+
+### install/upgrade prometheus operator
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm upgrade prom-operator-01 prometheus-community/kube-prometheus-stack --set grafana.sidecar.dashboards.enabled=true -n prometheus
+kubectl wait pod --namespace prometheus -l "release=prom-operator-01" --for=condition=Ready --timeout=2m
+
+# GET PROMETHEUS_kubeStateMetrics
+$PROMETHEUS_kubeStateMetrics=(kubectl get svc -l app.kubernetes.io/name=kube-state-metrics -o jsonpath="{.items[0].metadata.name}" -n prometheus)
+$PROMETHEUS_kubeStateMetrics
+
+### install/upgrade fluenbit
+helm repo add fluent https://fluent.github.io/helm-charts
+helm repo update
+helm upgrade --install fluent-bit fluent/fluent-bit --namespace fluent-bit //--create-namespace
+cat fluentbit/fluent-bit_initial.yam
+kubectl apply -f fluentbit/fluent-bit_initial.yaml -n fluent-bit
+kubectl rollout restart ds fluent-bit -n fluent-bit
+
+
+### deploy demo application
+kubectl create ns otel-demo
+kubectl apply -f otel-demo/openTelemetry-sidecar.yaml -n otel-demo
+$VERSION="v1.2.1"
+$VERSION
+cat otel-demo/K8sdemo.yaml
+(Get-Content otel-demo/K8sdemo.yaml).replace("VERSION_TO_REPLACE", $VERSION) | Set-Content otel-demo/K8sdemo.yaml
+
+kubectl apply -f otel-demo/K8sdemo.yaml -n otel-demo
+kubectl get all -n otel-demo
+
+echo "Otel demo url: http://otel-demo.$IP.nip.io"
+
+verificar logs:
+kubectl get pods -n fluent-bit
+kubectl logs fluent-bit-cmbkp
+
+kubectl describe pods 
+
+
+### Configure Fluentbit #############
+#Edit the fluentbit daemonset to expose the otlphttp port
+
+#bkp daemonset 
+kubectl get ds fluent-bit -n fluent-bit -o yaml > fluent-bit_ds.yaml
+#add the followin port int he ports section:
+kubectl edit ds fluent-bit -n fluent-bit
+- containerPort: 4318
+  name: otlphttp
+  protocol: TCP
+  
+#now edit the fluent-bit service to add the otlphttp port:
+#bkp svc 
+kubectl get svc fluent-bit -n fluent-bit -o yaml > fluent-bit_svc.yaml
+kubectl edit svc fluent-bit -n fluent-bit
+- name: otlphttp
+  port: 4318
+  protocol: TCP
+  targetPort: otlphttp
+  
+kubectl rollout restart ds fluent-bit -n fluent-bit
+
+##### Pipeline ###################################
+kubectl config set-context --current --namespace=prometheus
+kubectl port-forward prometheus-prom-operator-01-kube-prom-prometheus-0 9090:9090 --namespace=prometheus
+kubectl port-forward svc/prom-operator-01-grafana 8080:80 --namespace=prometheus
+
+
+kubectl config set-context --current --namespace=fluent-bit
+kubectl get cm fluent-bit -n fluent-bit -o yaml > fluentbit/RECORD_fluent-bit_cm.yaml
+kubectl edit cm fluent-bit -n fluent-bit
+
+##### add expect #####
+kubectl apply -f fluentbit/fluent-bit_cml_expect.yaml -n fluent-bit
+kubectl rollout restart ds fluent-bit -n fluent-bit
+
+##### add metrics #####
+kubectl apply -f fluentbit/fluent-bit-metrics.yaml -n fluent-bit
+kubectl rollout restart ds fluent-bit -n fluent-bit
+
+##### opentelemetry #####
+kubectl apply -f fluentbit/fluent-bit_cml.yaml -n fluent-bit
+kubectl rollout restart ds fluent-bit -n fluent-bit
+
+verificar logs:
+kubectl get pods -n fluent-bit
+kubectl logs fluent-bit-89zlr -n fluent-bit
+kubectl port-forward fluent-bit-89zlr -n fluent-bit 2021:2021
+
+
+
+
+
+
+
+
+
+
+
+
+
