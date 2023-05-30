@@ -2,9 +2,9 @@ Access token dynatrace
 curl -X POST "https://iwb73820.live.dynatrace.com/api/v2/apiTokens" -H "accept: application/json; charset=utf-8" -H "Content-Type: application/json; charset=utf-8" -d "{\"name\":\"ingest token\",\"scopes\":[\"events.ingest\",\"logs.ingest\",\"metrics.ingest\",\"openTelemetryTrace.ingest\"]}" -H "Authorization: Api-Token XXXXXXXX"
 
 token
-dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+tesstedsaf.xxxxrtss
 tennat
-https://iwb73820.live.dynatrace.com/
+xxxxxxxx.live.dynatrace.com
 
 
 - FluentBit para coletar os logs
