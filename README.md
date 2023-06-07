@@ -1,8 +1,4 @@
-# Is it Observable
-<p align="center"><img src="/image/logo.png" width="40%" alt="Is It observable Logo" /></p>
-
-## Episode : Fluentbit the Telemetry Agent
-This repository contains the files utilized during the tutorial presented in the dedicated IsItObservable episode related to Fluentbit v2.
+## Fluentbit the Telemetry Agent
 <p align="center"><img src="/image/fluentbit.png" width="40%" alt="Fluentbit Logo" /></p>
 
 What you will learn
