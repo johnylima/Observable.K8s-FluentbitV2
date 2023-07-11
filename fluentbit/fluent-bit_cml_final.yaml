@@ -1,0 +1,157 @@
+apiVersion: v1
+data:
+  custom_parsers.conf: |
+    [PARSER]
+       Name docker_no_time
+       Format json
+       Time_Keep Off
+       Time_Key time
+       Time_Format %Y-%m-%dT%H:%M:%S.%L
+  fluent-bit.conf: |
+    [SERVICE]
+       Daemon Off
+       Flush 1
+       Log_Level info
+       Parsers_File   parsers.conf
+       Parsers_File custom_parsers.conf
+       HTTP_Server On
+       HTTP_Listen 0.0.0.0
+       HTTP_Port 2020
+       Health_Check On
+       Streams_File stream_processor.conf
+    [INPUT]
+       Name tail
+       Path  /var/log/containers/*.log
+       multiline.parser docker, cri
+       Tag kube.*
+       Mem_Buf_Limit 5MB
+       Skip_Long_Lines On
+    [INPUT]
+       name fluentbit_metrics
+       tag  otel.fluent
+       scrape_interval 2
+    [INPUT]
+       name opentelemetry
+       listen 0.0.0.0
+       port 4318
+       tag otel.otel
+    [INPUT]
+       name prometheus_scrape
+       host prom-operator-01-kube-state-metrics.default.svc
+       metrics_path /metrics
+       tag  otel.node
+       port 9100
+       scrape_interval 2
+    [INPUT]
+       name prometheus_scrape
+       host prom-operator-01-kube-state-metrics.default.svc
+       port 8080
+       tag otel.metrics
+       metrics_path /metrics
+       scrape_interval 10s
+    [FILTER]
+       Name kubernetes
+       Match kube.*
+       Merge_Log On
+       Keep_Log Off
+       K8S-Logging.Parser    On
+       K8S-Logging.Exclude On
+    [FILTER]
+       Name nest
+       Match kube.*
+       Operation lift
+       Nested_under kubernetes
+       Add_prefix   kubernetes_
+    [FILTER]
+       Name grep
+       Match kube.*
+       Exclude kubernetes_container_name fluent-bit
+    [FILTER]
+       Name nest
+       Match kube.*
+       Operation lift
+       Nested_under kubernetes_labels
+    [FILTER]
+       Name          rewrite_tag
+       Match         kube.*
+       Rule          $kubernetes_namespace_name ^(([a-z0-9A-Z]+)-*([a-z0-9A-Z]*))$ modify.$kubernetes_namespace_name true
+       Emitter_Name  re_emitted
+    [FILTER]
+       Name modify
+       Match kube.*
+       Rename log content
+       Rename kubernetes_pod_name k8s.pod.name
+       Rename kubernetes_namespace_name k8s.namespace.name
+       Remove kubernetes_container_image
+       Remove kubernetes_docker_id
+       Remove kubernetes_container_name
+       Remove kubernetes_pod_id
+       Remove kubernetes_host
+       Remove kubernetes_annotations
+       Remove time
+       Remove kubernetes_container_hash
+       Add k8s.cluster.name observable
+       Add dt.kubernetes.config.id 2e2feaa7-6338-48a0-a4c3-31370ac72c6d
+
+    [FILTER]
+       Name     throttle
+       Match    *
+       Rate     800
+       Window   3
+       Print_Status  true
+       Interval 30s
+
+    [OUTPUT]
+       Name http
+       Match kube.*
+       host  iwb73820.live.dynatrace.com
+       port 443
+       URI /api/v2/logs/ingest
+       header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+       header Content-type application/json; charset=utf-8
+       Format json_stream
+       allow_duplicated_headers false
+       Json_date_key timestamp
+       Json_date_format iso8601
+       tls On
+       tls.verify Off
+       Retry_Limit false
+
+    [OUTPUT]
+       Name opentelemetry
+       Host  iwb73820.live.dynatrace.com
+       Port  443
+       Match otel.*
+       Metrics_uri  /api/v2/otlp/v1/metrics
+       Traces_uri  /api/v2/otlp/v1/traces
+       Logs_uri   /api/v2/otlp/v1/logs
+       Log_response_payload True
+       Tls On
+       Tls.verify Off
+       header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+       header Content-type application/x-protobuf
+    [OUTPUT]
+       Name stdout
+       Match *
+  stream_processor.conf: |
+    [STREAM_TASK]
+       Name   otel_logs
+       Exec   CREATE STREAM otel_logs_count WITH (tag='otel.count') AS SELECT kubernetes_pod_name,COUNT(*) from TAG:'modify.*' WINDOW TUMBLING (5 SECOND)  WHERE kubernetes_namespace_name='otel-demo' GROUP BY kubernetes_pod_name ;
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"custom_parsers.conf":"[PARSER]\n   Name docker_no_time\n   Format json\n   Time_Keep Off\n   Time_Key time\n   Time_Format %Y-%m-%dT%H:%M:%S.%L\n","fluent-bit.conf":"[SERVICE]\n   Daemon Off\n   Flush 1\n   Log_Level info\n   Parsers_File   parsers.conf\n   Parsers_File custom_parsers.conf\n   HTTP_Server On\n   HTTP_Listen 0.0.0.0\n   HTTP_Port 2020\n   Health_Check On\n   Streams_File stream_processor.conf\n[INPUT]\n   Name tail\n   Path  /var/log/containers/*.log\n   multiline.parser docker, cri\n   Tag kube.*\n   Mem_Buf_Limit 5MB\n   Skip_Long_Lines On\n[INPUT]\n   name fluentbit_metrics\n   tag  otel.fluent\n   scrape_interval 2\n[INPUT]\n   name opentelemetry\n   listen 0.0.0.0\n   port 4318\n   tag otel.otel\n[INPUT]\n   name prometheus_scrape\n   host prom-operator-01-kube-state-metrics.default.svc\n   metrics_path /metrics\n   tag  otel.node\n   port 9100\n   scrape_interval 2\n[INPUT]\n   name prometheus_scrape\n   host prometheus-kube-state-metrics.default.svc\n   port 8080\n   tag otel.metrics\n   metrics_path /metrics\n   scrape_interval 10s\n[FILTER]\n   Name kubernetes\n   Match kube.*\n   Merge_Log On\n   Keep_Log Off\n   K8S-Logging.Parser    On\n   K8S-Logging.Exclude On\n[FILTER]\n   Name nest\n   Match kube.*\n   Operation lift\n   Nested_under kubernetes\n   Add_prefix   kubernetes_\n[FILTER]\n   Name grep\n   Match kube.*\n   Exclude kubernetes_container_name fluent-bit\n[FILTER]\n   Name nest\n   Match kube.*\n   Operation lift\n   Nested_under kubernetes_labels\n[FILTER]\n   Name          rewrite_tag\n   Match         kube.*\n   Rule          $kubernetes_namespace_name ^(([a-z0-9A-Z]+)-*([a-z0-9A-Z]*))$ modify.$kubernetes_namespace_name true\n   Emitter_Name  re_emitted\n[FILTER]\n   Name modify\n   Match kube.*\n   Rename log content\n   Rename kubernetes_pod_name k8s.pod.name\n   Rename kubernetes_namespace_name k8s.namespace.name\n   Remove kubernetes_container_image\n   Remove kubernetes_docker_id\n   Remove kubernetes_container_name\n   Remove kubernetes_pod_id\n   Remove kubernetes_host\n   Remove kubernetes_annotations\n   Remove time\n   Remove kubernetes_container_hash\n   Add k8s.cluster.name observable\n   Add dt.kubernetes.config.id 2e2feaa7-6338-48a0-a4c3-31370ac72c6d\n\n[FILTER]\n   Name     throttle\n   Match    *\n   Rate     800\n   Window   3\n   Print_Status  true\n   Interval 30s\n\n[OUTPUT]\n   Name http\n   Match kube.*\n   host  iwb73820.live.dynatrace.com\n   port 443\n   URI /api/v2/logs/ingest\n   header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS\n   header Content-type application/json; charset=utf-8\n   Format json_stream\n   allow_duplicated_headers false\n   Json_date_key timestamp\n   Json_date_format iso8601\n   tls On\n   tls.verify Off\n   Retry_Limit false\n\n[OUTPUT]\n   Name opentelemetry\n   Host  iwb73820.live.dynatrace.com\n   Port  443\n   Match otel.*\n   Metrics_uri  /api/v2/otlp/v1/metrics\n   Traces_uri  /api/v2/otlp/v1/traces\n   Logs_uri   /api/v2/otlp/v1/logs\n   Log_response_payload True\n   Tls On\n   Tls.verify Off\n   header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS\n   header Content-type application/x-protobuf\n[OUTPUT]\n   Name stdout\n   Match *\n","stream_processor.conf":"[STREAM_TASK]\n   Name   otel_logs\n   Exec   CREATE STREAM otel_logs_count WITH (tag='otel.count') AS SELECT kubernetes_pod_name,COUNT(*) from TAG:'modify.*' WINDOW TUMBLING (5 SECOND)  WHERE kubernetes_namespace_name='otel-demo' GROUP BY kubernetes_pod_name ;\n"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"app.kubernetes.io/instance":"fluent-bit","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"fluent-bit","app.kubernetes.io/version":"2.0.8","helm.sh/chart":"fluent-bit-0.22.0"},"name":"fluent-bit","namespace":"fluent-bit"}}
+    meta.helm.sh/release-name: fluent-bit
+    meta.helm.sh/release-namespace: fluent-bit
+  creationTimestamp: "2023-05-27T17:11:47Z"
+  labels:
+    app.kubernetes.io/instance: fluent-bit
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/version: 2.0.8
+    helm.sh/chart: fluent-bit-0.22.0
+  name: fluent-bit
+  namespace: fluent-bit
+  resourceVersion: "454625"
+  uid: 5f7c1cd8-d214-4f1c-b217-137f62c71c13
