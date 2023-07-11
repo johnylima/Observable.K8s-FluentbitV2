@@ -107,7 +107,7 @@ data:
        host  iwb73820.live.dynatrace.com
        port 443
        URI /api/v2/logs/ingest
-       header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+       header Authorization Api-Token xxxxxxxxx
        header Content-type application/json; charset=utf-8
        Format json_stream
        allow_duplicated_headers false
@@ -128,7 +128,7 @@ data:
        Log_response_payload True
        Tls On
        Tls.verify Off
-       header Authorization Api-Token dt0c01.YUICIVWV7XUWL3JHHNBFHMOM.IJCE2JA2M77HAAZNW36WXTG5Q47ZNQ5OWMU53Y2JU4JGOBMWLKGESVYKLJIZPBKS
+       header Authorization Api-Token xxxxxx
        header Content-type application/x-protobuf
     [OUTPUT]
        Name stdout
